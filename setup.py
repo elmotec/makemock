@@ -30,7 +30,7 @@ setup(
     entry_points={"console_scripts": ["makemock=makemock:main"]},
     long_description=readme,
     test_suite="tests",
-    setup_requires=[],
+    setup_requires=["click"],
     tests_require=tests_require,
     classifiers=[
         "Development Status :: 5 - Production/Stable",
