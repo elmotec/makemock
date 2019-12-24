@@ -22,7 +22,7 @@ setup(
     version="0.5",
     author="elmotec",
     author_email="elmotec@gmx.com",
-    description="regex based mock generator for googletest",
+    description="simple regex based mock generator for googletest",
     license="MIT",
     keywords="regex mock generator googletest",
     url="http://github.com/elmotec/makemock",
