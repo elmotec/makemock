@@ -1,0 +1,3 @@
+# Run pip install --requirement=requirements.txt to install all requirements
+
+click
