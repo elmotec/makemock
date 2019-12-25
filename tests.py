@@ -152,6 +152,21 @@ class MockMakerTest(unittest.TestCase):
     def test_non_overriden_non_virtual_method_not_mocked(self):
         self.verify("Foo GetFoo() const;", "")
 
+    def test_default_values(self):
+        self.verify(
+            "virtual void Foo(int i = 0);",
+            "MOCK_METHOD(void, Foo, (int i), (override));",
+        )
+
+    def test_final(self):
+        self.verify("virtual void Foo(int i) final;", "")
+
+    def test_multiple_namespace(self):
+        self.verify(
+            "virtual void Foo(some::nested::NsClass nc);",
+            "MOCK_METHOD(void, Foo, (some::nested::NsClass nc), (override));",
+        )
+
 
 class DefaultDelegationTest(unittest.TestCase):
     """Test generation of method delegation calls."""
@@ -161,110 +176,54 @@ class DefaultDelegationTest(unittest.TestCase):
         self.assertEqual(expected, actual)
 
     def test_simple_call(self):
-        self.verify(makemock.MockMethod("int", "DoThis", "()", "const"),
-                    "ON_CALL(DoThis()).WillByDefault(Return(real->DoThis());")
+        self.verify(
+            makemock.MockMethod("int", "DoThis", "()", "const"),
+            "ON_CALL(*this, DoThis()).WillByDefault(Invoke([]() { return real->DoThis(); }));",
+        )
 
     def test_with_arg_name(self):
-        self.verify(makemock.MockMethod("int", "DoThis", "(int)", "const"),
-                    "ON_CALL(DoThis(int p0)).WillByDefault(Return(real->DoThis(p0));")
+        self.verify(
+            makemock.MockMethod("int", "DoThis", "(int)", "const"),
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](int p0) { return real->DoThis(p0); }));",
+        )
 
     def test_without_arg_name(self):
-        self.verify(makemock.MockMethod("int", "DoThis", "(int val)", "const"),
-                    "ON_CALL(DoThis(int val)).WillByDefault(Return(real->DoThis(val));")
+        self.verify(
+            makemock.MockMethod("int", "DoThis", "(int val)", "const"),
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](int val) { return real->DoThis(val); }));",
+        )
 
     def test_with_const_arg(self):
-        self.verify(makemock.MockMethod("int", "DoThis", "(const int)", "const"),
-                    "ON_CALL(DoThis(const int p0)).WillByDefault(Return(real->DoThis(p0));")
+        self.verify(
+            makemock.MockMethod("int", "DoThis", "(const int)", "const"),
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const int p0) { return real->DoThis(p0); }));",
+        )
 
     def test_with_const_pointer_arg(self):
-        self.verify(makemock.MockMethod("int", "DoThis", "(const char *)", "const"),
-                    "ON_CALL(DoThis(const char * p0)).WillByDefault(Return(real->DoThis(p0));")
+        self.verify(
+            makemock.MockMethod("int", "DoThis", "(const char *)", "const"),
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const char * p0) { return real->DoThis(p0); }));",
+        )
 
     def test_with_const_ref_arg(self):
-        self.verify(makemock.MockMethod("int", "DoThis", "(const int &)", "const"),
-                    "ON_CALL(DoThis(const int & p0)).WillByDefault(Return(real->DoThis(p0));")
+        self.verify(
+            makemock.MockMethod("int", "DoThis", "(const int &)", "const"),
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const int & p0) { return real->DoThis(p0); }));",
+        )
 
     def test_with_namespace(self):
-        self.verify(makemock.MockMethod("int", "DoThis", "(const std::string &)", "const"),
-                    "ON_CALL(DoThis(const std::string & p0)).WillByDefault(Return(real->DoThis(p0));")
+        self.verify(
+            makemock.MockMethod("int", "DoThis", "(const std::string &)", "const"),
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const std::string & p0) { return real->DoThis(p0); }));",
+        )
 
     def test_multiple_arguments(self):
-        self.verify(makemock.MockMethod("int", "DoThis", "(const char * str, string &)", "const"),
-                    "ON_CALL(DoThis(const char * str, string & p1)).WillByDefault(Return(real->DoThis(str, p1));")
-
-
-class MockMakerTestWithHeader(unittest.TestCase):
-    def setUp(self):
-        """Initialize header files."""
-        self.mockmaker = makemock.MockMaker()
-        header = textwrap.dedent(
-            """\
-        #include <iostream>
-        #include <vector>
-
-        namespace test
-        {
-
-        class ProdClass: public ParentClass
-        {
-        public:
-            ProdClass();
-            ProdClass(const ProdClass &);
-            ProdClass(ProdClass &&);
-            ~ProdClass();
-            ProdClass & operator=(const ProdClass &);
-            ProdClass && operator=(ProdClass &&);
-
-            int DoThis() override;
-            virtual std::string DoThat()
-            {
-                return DoThatOtherThing();
-            }       
-            void DontMock();
-        };
-        }
-        """
+        self.verify(
+            makemock.MockMethod(
+                "int", "DoThis", "(const char * str, string &)", "const"
+            ),
+            "ON_CALL(*this, DoThis(_, _)).WillByDefault(Invoke([](const char * str, string & p1) { return real->DoThis(str, p1); }));",
         )
-
-    def notest_default_template(self):
-        """Generate mock methods and delegate function."""
-        expected = textwrap.dedent("""\
-        MOCK_METHOD(int, DoThis, (), (override));
-        MOCK_METHOD(std::string, DoThat, (), (override));
-        
-        void DelegateTo(ProdClass * real)
-        {
-            ON_CALL(DoThis()).WillByDefault(Return(real->DoThis());
-            ON_CALL(DoThat(std::string val)).WillByDefault(Return(real->DoThat(val));
-        }
-        """)
-        self.verify(self.header, expected, template=makemock.get_basic_template())
-
-    def notest_default_template(self):
-        """Generate full header using default template."""
-        expected = textwrap.dedent(
-            """\
-        #include "ProdClass.h"
-        
-        namespace test
-        {
-        class MockProdClass: public ProdClass
-        {
-        public:
-            MOCK_METHOD(int, DoThis, (), (override));
-            MOCK_METHOD(std::string, DoThat, (), (override));
-            void DelegateTo(ProdClass * real);
-        };
-        
-        void MockProdClass::DelegateTo(ProdClass * real)
-        {
-            ON_CALL(DoThis()).WillByDefault(Return(real->DoThis());
-            ON_CALL(DoThat(std::string val)).WillByDefault(Return(real->DoThat(val));
-        }
-        }        
-        """
-        )
-        self.verify(self.header, expected, template=makemock.get_header_template())
 
 
 if __name__ == "__main__":
