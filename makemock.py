@@ -52,19 +52,16 @@ def generate_default_delegation(method):
     return f"ON_CALL(*this, {method.name}({', '.join(arg_pholders)})).WillByDefault(Invoke([]({', '.join(arg_type_and_names)}) {body}));"
 
 
-def get_basic_template():
-    """Generate default template."""
-    return textwrap.dedent(
-        """
-    ${mock_methods}
+class BraceCounter:
+    """Counts braces as it processes statements."""
 
-    ${delegate_to}
+    def __init__(self):
+        self.count = 0
 
-    """
-    )
-
-
-get_default_template = get_basic_template
+    def process(self, statement):
+        """Look for opening and closing braces and update count."""
+        self.count += statement.count("{")
+        self.count -= statement.count("}")
 
 
 class MockMaker:
@@ -74,9 +71,9 @@ class MockMaker:
         r"^\s*(?P<virtual>virtual)?\s*(?P<ret_type>[\w:<>,\s&*]+)\s+(?P<name>\w+)(?P<params>\([^\)]*\))(?P<qualifiers>(?:\s*\w+)*)(\s*=.*)?"
     )
 
-    def __init__(self, indent=None):
+    def __init__(self, target_class=None, indent=None):
         """Initialize MockMaker."""
-        pass
+        self.target_class = target_class
 
     def parse_method(self, match):
         """Process match from the regular expression."""
@@ -98,7 +95,24 @@ class MockMaker:
         """Makes the mock."""
         content = input.read()
         methods = []
-        for statement in content.split(";"):
+        brace_counter = BraceCounter()
+        class_brace_level, content_of_interest = None, []
+        if self.target_class is not None:
+            for line in content.split("\n"):
+                brace_counter.process(line)
+                if class_brace_level is None:
+                    if 'class' not in line and self.target_class not in line:
+                        continue
+                    offset = 1
+                    if '{' in line:
+                        offset = 0
+                    class_brace_level = brace_counter.count + offset
+                    continue
+                elif brace_counter.count < class_brace_level:
+                    break
+                content_of_interest.append(line)
+            content = "\n".join(content_of_interest)
+        for statement in re.split(r"[;{}]", content):
             match = self.method_decl_re.match(statement)
             if not match:
                 continue
@@ -128,8 +142,9 @@ class MockMaker:
 
 @click.command()
 @click.argument("input", type=click.File("r"))
-@click.option("-o", "--outuput", type=click.File("w"), default="-", help="output file")
-def main(input, output):
+@click.option("-o", "--output", type=click.File("w"), default="-", help="output file")
+@click.option("-c", "--target-class", type=str, help="target class name")
+def main(input, output, target_class=None):
     """Process a C++ header file and generate a mock class based on it.
 
     This tool is regex based and does not handle all c++, notably:
@@ -137,7 +152,7 @@ def main(input, output):
     - (TBD)
 
     """
-    mockmaker = MockMaker()
+    mockmaker = MockMaker(target_class=target_class)
     mockmaker.make_mock(input, output)
     return 0
 

@@ -10,6 +10,7 @@ import io
 
 import click.testing
 import unittest
+import unittest.mock as mock
 
 import makemock
 
@@ -30,6 +31,12 @@ class CliRunnerTest(unittest.TestCase):
         result = self.runner.invoke(makemock.main, ["invalid"])
         assert result.exit_code == 2
         assert 'Error: Invalid value for "INPUT"' in result.output
+
+    @mock.patch("builtins.open", spec=True)
+    @mock.patch("makemock.MockMaker", spec=True)
+    def test_class_option(self, MockMaker, open_):
+        result = self.runner.invoke(makemock.main, ["-c", "SomeClass", "tests.py"])
+        MockMaker.assert_called_with(target_class="SomeClass")
 
 
 class MockMakerTest(unittest.TestCase):
@@ -134,38 +141,74 @@ class MockMakerTest(unittest.TestCase):
 
     def test_return_type_reference(self):
         self.verify(
-            "virtual Bar & GetBar();", "MOCK_METHOD(Bar &, GetBar, (), (override));"
+            "virtual Bar & get_bar();", "MOCK_METHOD(Bar &, get_bar, (), (override));"
         )
 
     def test_const_return_type(self):
         self.verify(
-            "virtual const Bar & GetBar() const;",
-            "MOCK_METHOD(const Bar &, GetBar, (), (const, override));",
+            "virtual const Bar & get_bar() const;",
+            "MOCK_METHOD(const Bar &, get_bar, (), (const, override));",
         )
 
     def test_overriden_method(self):
         self.verify(
-            "Foo GetFoo() const override;",
-            "MOCK_METHOD(Foo, GetFoo, (), (const, override));",
+            "foo get_foo() const override;",
+            "MOCK_METHOD(foo, get_foo, (), (const, override));",
         )
 
     def test_non_overriden_non_virtual_method_not_mocked(self):
-        self.verify("Foo GetFoo() const;", "")
+        self.verify("foo get_foo() const;", "")
 
     def test_default_values(self):
         self.verify(
-            "virtual void Foo(int i = 0);",
-            "MOCK_METHOD(void, Foo, (int i), (override));",
+            "virtual void foo(int i = 0);",
+            "MOCK_METHOD(void, foo, (int i), (override));",
         )
 
     def test_final(self):
-        self.verify("virtual void Foo(int i) final;", "")
+        self.verify("virtual void foo(int i) final;", "")
 
     def test_multiple_namespace(self):
         self.verify(
-            "virtual void Foo(some::nested::NsClass nc);",
-            "MOCK_METHOD(void, Foo, (some::nested::NsClass nc), (override));",
+            "virtual void foo(some::nested::NsClass nc);",
+            "MOCK_METHOD(void, foo, (some::nested::NsClass nc), (override));",
         )
+
+    def test_newline_prefix(self):
+        self.verify(
+            "\n     virtual int foo(int i);",
+            "MOCK_METHOD(int, foo, (int i), (override));"
+        )
+
+    def test_class_targeting(self):
+        """MakeMock can target a specific class in the input."""
+        input_header = textwrap.dedent("""
+        void do_not_mock() override;
+        
+        class TestClass
+        {
+            void do_mock() override;
+        };
+        """)
+        self.mockmaker.target_class = "TestClass"
+        self.verify(input_header, "MOCK_METHOD(void, do_mock, (), (override));")
+
+
+class BraceCounterTest(unittest.TestCase):
+    """Test BraceCounter class."""
+
+    def setUp(self) -> None:
+        self.counter = makemock.BraceCounter()
+
+    def verify(self, statement, expected_count):
+        self.counter.process(statement)
+        self.assertEqual(expected_count, self.counter.count)
+
+    def test_one_opening_brace(self):
+        self.verify("{", 1)
+
+    def test_one_opening_and_one_closing_brace(self):
+        self.verify("{}", 0)
 
 
 class DefaultDelegationTest(unittest.TestCase):
