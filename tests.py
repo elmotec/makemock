@@ -3,15 +3,14 @@
 
 """Test module to test makemock."""
 
+import io
 import logging
 import sys
 import textwrap
-import io
-
-import click.testing
 import unittest
 import unittest.mock as mock
 
+import click.testing
 import makemock
 
 
@@ -35,7 +34,7 @@ class CliRunnerTest(unittest.TestCase):
     @mock.patch("builtins.open", spec=True)
     @mock.patch("makemock.MockMaker", spec=True)
     def test_class_option(self, MockMaker, open_):
-        result = self.runner.invoke(makemock.main, ["-c", "SomeClass", "tests.py"])
+        self.runner.invoke(makemock.main, ["-c", "SomeClass", "tests.py"])
         MockMaker.assert_called_with(target_class="SomeClass")
 
 
@@ -165,6 +164,24 @@ class MockMakerTest(unittest.TestCase):
             "MOCK_METHOD(void, foo, (int i), (override));",
         )
 
+    def test_negative_default_values(self):
+        self.verify(
+            "virtual void foo(int i = - 1);",
+            "MOCK_METHOD(void, foo, (int i), (override));",
+        )
+
+    def test_newline_after_paren(self):
+        self.verify(
+            "virtual eEnum foo(\nbool * bar = 0,\nbool * baz = 0) = 0",
+            "MOCK_METHOD(eEnum, foo, (bool * bar, bool * baz), (override));",
+        )
+
+    def test_parenthesis_in_params(self):
+        self.verify(
+            "virtual void foo(bar = Bar())",
+            "MOCK_METHOD(void, foo, (bar), (override));",
+        )
+
     def test_final(self):
         self.verify("virtual void foo(int i) final;", "")
 
@@ -177,19 +194,21 @@ class MockMakerTest(unittest.TestCase):
     def test_newline_prefix(self):
         self.verify(
             "\n     virtual int foo(int i);",
-            "MOCK_METHOD(int, foo, (int i), (override));"
+            "MOCK_METHOD(int, foo, (int i), (override));",
         )
 
     def test_class_targeting(self):
         """MakeMock can target a specific class in the input."""
-        input_header = textwrap.dedent("""
+        input_header = textwrap.dedent(
+            """
         void do_not_mock() override;
-        
+
         class TestClass
         {
             void do_mock() override;
         };
-        """)
+        """
+        )
         self.mockmaker.target_class = "TestClass"
         self.verify(input_header, "MOCK_METHOD(void, do_mock, (), (override));")
 
@@ -221,43 +240,50 @@ class DefaultDelegationTest(unittest.TestCase):
     def test_simple_call(self):
         self.verify(
             makemock.MockMethod("int", "DoThis", "()", "const"),
-            "ON_CALL(*this, DoThis()).WillByDefault(Invoke([]() { return real->DoThis(); }));",
+            "ON_CALL(*this, DoThis()).WillByDefault(Invoke([]() "
+            "{ return real->DoThis(); }));",
         )
 
     def test_with_arg_name(self):
         self.verify(
             makemock.MockMethod("int", "DoThis", "(int)", "const"),
-            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](int p0) { return real->DoThis(p0); }));",
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](int p0) "
+            "{ return real->DoThis(p0); }));",
         )
 
     def test_without_arg_name(self):
         self.verify(
             makemock.MockMethod("int", "DoThis", "(int val)", "const"),
-            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](int val) { return real->DoThis(val); }));",
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](int val) "
+            "{ return real->DoThis(val); }));",
         )
 
     def test_with_const_arg(self):
         self.verify(
             makemock.MockMethod("int", "DoThis", "(const int)", "const"),
-            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const int p0) { return real->DoThis(p0); }));",
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const int p0) "
+            "{ return real->DoThis(p0); }));",
         )
 
     def test_with_const_pointer_arg(self):
         self.verify(
             makemock.MockMethod("int", "DoThis", "(const char *)", "const"),
-            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const char * p0) { return real->DoThis(p0); }));",
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const char * p0) "
+            "{ return real->DoThis(p0); }));",
         )
 
     def test_with_const_ref_arg(self):
         self.verify(
             makemock.MockMethod("int", "DoThis", "(const int &)", "const"),
-            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const int & p0) { return real->DoThis(p0); }));",
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const int & p0) "
+            "{ return real->DoThis(p0); }));",
         )
 
     def test_with_namespace(self):
         self.verify(
             makemock.MockMethod("int", "DoThis", "(const std::string &)", "const"),
-            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const std::string & p0) { return real->DoThis(p0); }));",
+            "ON_CALL(*this, DoThis(_)).WillByDefault(Invoke([](const std::string & p0) "
+            "{ return real->DoThis(p0); }));",
         )
 
     def test_multiple_arguments(self):
@@ -265,7 +291,8 @@ class DefaultDelegationTest(unittest.TestCase):
             makemock.MockMethod(
                 "int", "DoThis", "(const char * str, string &)", "const"
             ),
-            "ON_CALL(*this, DoThis(_, _)).WillByDefault(Invoke([](const char * str, string & p1) { return real->DoThis(str, p1); }));",
+            "ON_CALL(*this, DoThis(_, _)).WillByDefault(Invoke([](const char * str, string & p1) "
+            "{ return real->DoThis(str, p1); }));",
         )
 
 

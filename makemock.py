@@ -3,11 +3,9 @@
 
 """A regex based mock generator from .h header files."""
 
-import re
 import logging
-import collections
-import textwrap
-import string
+import re
+import typing
 
 import click
 
@@ -17,14 +15,22 @@ __license__ = "MIT"
 
 
 log = logging.getLogger(__name__)
-MockMethod = collections.namedtuple("MockMetod", "ret_type name parameters qualifiers")
+
+
+class MockMethod(typing.NamedTuple):
+    """Stores information about methods."""
+
+    ret_type: str
+    name: str
+    parameters: str
+    qualifiers: str
 
 
 def generate_mock_method(method):
     """Generate MOCK_METHOD google macro."""
     return (
         f"MOCK_METHOD({method.ret_type}, {method.name}, "
-        f"{method.parameters}, ({method.qualifiers}));"
+        f"({method.parameters}), ({method.qualifiers}));"
     )
 
 
@@ -35,7 +41,8 @@ def generate_default_delegation(method):
         method.parameters.replace("(", "").replace(")", "").split(",")
     ):
         m = re.match(
-            r"^\s*(?P<arg_type>(?:const\s+)?[:\w]+(?:\s*[\*\&])?)\s*(?P<arg_name>\w+)?\s*(= 0)?\s*$",
+            r"^\s*(?P<arg_type>(?:const\s+)?[:\w]+(?:\s*[\*\&])?)\s*"
+            r"(?P<arg_name>\w+)?\s*$",
             arg,
         )
         if not m:
@@ -49,7 +56,10 @@ def generate_default_delegation(method):
         arg_names.append(arg_name)
         arg_pholders.append("_")
     body = "{ " + f"return real->{method.name}({', '.join(arg_names)});" + " }"
-    return f"ON_CALL(*this, {method.name}({', '.join(arg_pholders)})).WillByDefault(Invoke([]({', '.join(arg_type_and_names)}) {body}));"
+    return (
+        f"ON_CALL(*this, {method.name}({', '.join(arg_pholders)}))."
+        f"WillByDefault(Invoke([]({', '.join(arg_type_and_names)}) {body}));"
+    )
 
 
 class BraceCounter:
@@ -68,12 +78,22 @@ class MockMaker:
     """Makes a mock file from a C++ header file."""
 
     method_decl_re = re.compile(
-        r"^\s*(?P<virtual>virtual)?\s*(?P<ret_type>[\w:<>,\s&*]+)\s+(?P<name>\w+)(?P<params>\([^\)]*\))(?P<qualifiers>(?:\s*\w+)*)(\s*=.*)?"
+        r"^\s*(?P<virtual>virtual)?\s*(?P<ret_type>[\w:<>,\s&*]+)\s+"
+        r"(?P<name>\w+)"
+        r"\(\s*(?P<params>[^\)]*)\s*\)"
+        r"(?P<qualifiers>(?:\s*\w+)*)(\s*=.*)?",
+        re.MULTILINE,
     )
 
     def __init__(self, target_class=None, indent=None):
         """Initialize MockMaker."""
         self.target_class = target_class
+
+    def parse_param(self, param):
+        """Process argument of the method."""
+        param = re.sub(r"\s+", " ", param.strip())
+        param = re.sub(r"\s*=\s*.+", "", param)
+        return param
 
     def parse_method(self, match):
         """Process match from the regular expression."""
@@ -87,8 +107,7 @@ class MockMaker:
             quals.append("override")
         if "final" in quals:
             return
-        params = re.sub(r"\s+", " ", params)
-        params = re.sub(r"\s*=\s*\w+", "", params)
+        params = ", ".join([self.parse_param(p) for p in params.split(",")])
         return MockMethod(ret_type, name, params, ", ".join(quals))
 
     def find_methods_to_mock(self, input):
@@ -101,10 +120,10 @@ class MockMaker:
             for line in content.split("\n"):
                 brace_counter.process(line)
                 if class_brace_level is None:
-                    if 'class' not in line and self.target_class not in line:
+                    if "class" not in line and self.target_class not in line:
                         continue
                     offset = 1
-                    if '{' in line:
+                    if "{" in line:
                         offset = 0
                     class_brace_level = brace_counter.count + offset
                     continue
